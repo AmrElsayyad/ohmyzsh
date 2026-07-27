@@ -1,0 +1,87 @@
+name: sync-upstream
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/ohmyzsh/ohmyzsh.git
+
+      - name: Fetch upstream master
+        run: git fetch upstream master
+
+      - name: Check if anything to sync
+        id: check
+        run: |
+          # Exit 0 (skip) if origin/master already == upstream/master AND origin/sayyad is already rebased on it
+          # Fetch origin refs first so origin/master and origin/sayyad are up to date locally
+          git fetch origin master sayyad
+          UPSTREAM=$(git rev-parse upstream/master)
+          MASTER=$(git rev-parse origin/master)
+          SAYYAD=$(git rev-parse origin/sayyad)
+          # sayyad is "in sync" if its tree matches upstream/master after rebase; approximate by checking
+          # if sayyad already contains upstream/master and is a descendant... simpler: if both refs equal upstream, skip.
+          if [ "$MASTER" = "$UPSTREAM" ] && [ "$SAYYAD" = "$UPSTREAM" ]; then
+            echo "Nothing to sync (master=$MASTER sayyad=$SAYYAD upstream=$UPSTREAM)"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "Need sync (master=$MASTER sayyad=$SAYYAD upstream=$UPSTREAM)"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fast-forward origin/master to upstream/master
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          # Fast-forward master only (no rewrite). Use --force-with-lease as a safety net
+          # in case origin/master moved between fetch and push; abort if lease fails (don't blind-force).
+          git push origin upstream/master:refs/heads/master --force-with-lease=master:origin/master
+
+      - name: Rebase sayyad onto upstream/master and force-push
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git checkout sayyad
+          # Pull latest sayyad from origin (in case it moved)
+          git reset --hard origin/sayyad
+          # Rebase onto upstream/master
+          if ! git rebase upstream/master; then
+            echo "::error::Rebase failed — conflicts need manual resolution"
+            git rebase --abort
+            exit 1
+          fi
+          # Force-push with lease (rebase rewrites SHAs)
+          git push --force-with-lease=main:origin/sayyad origin HEAD:refs/heads/sayyad
+
+      - name: Re-apply workflow file after master FF (cherry-pick survival)
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          # The fast-forward of master above wiped our workflow file (it doesn't exist on upstream).
+          # Cherry-pick the workflow commit back onto master and push, so the schedule keeps running.
+          # The workflow commit is the most recent commit on sayyad that touched .github/workflows/sync-upstream.yml
+          WORKFLOW_SHA=$(git log --format=%H -1 -- .github/workflows/sync-upstream.yml sayyad)
+          git checkout master
+          git reset --hard origin/master
+          git cherry-pick "$WORKFLOW_SHA" || {
+            # If cherry-pick conflicts (shouldn't — file doesn't exist on master after FF), skip it
+            git cherry-pick --abort
+            echo "::warning::Could not cherry-pick workflow file onto master; sync workflow will disappear until manually restored"
+          }
+          git push --force-with-lease=master:origin/master origin HEAD:refs/heads/master
