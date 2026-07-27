@@ -58,9 +58,9 @@ jobs:
       - name: Cherry-pick workflow onto master (survival)
         if: steps.check.outputs.skip != 'true'
         run: |
-          WF_SHA=$(git log --format=%H -1 -- .github/workflows/sync-upstream.yml origin/master || true)
+          WF_SHA=$(git log --format=%H -1 -- .github/workflows/sync-upstream.yml origin/sayyad || true)
           if [ -n "$WF_SHA" ]; then
-            git checkout master
-            git cherry-pick "$WF_SHA" 2>/dev/null || { git cherry-pick --abort; echo "::warning::cherry-pick failed, workflow may disappear"; }
+            git checkout -B master origin/master
+            git cherry-pick "$WF_SHA" 2>/dev/null || true
             git push --force-with-lease origin HEAD:refs/heads/master
           fi
