@@ -1,0 +1,12 @@
+[submodule "custom/plugins/zsh-autosuggestions"]
+  path = custom/plugins/zsh-autosuggestions
+  url = git@github.com:zsh-users/zsh-autosuggestions.git
+
+[submodule "custom/plugins/zsh-syntax-highlighting"]
+  path = custom/plugins/zsh-syntax-highlighting
+  url = git@github.com:joshskidmore/zsh-syntax-highlighting.git
+
+[submodule "custom/plugins/zsh-fzf-history-search"]
+  path = custom/plugins/zsh-fzf-history-search
+  url = git@github.com:chitoku-k/zsh-fzf-history-search.git
+
