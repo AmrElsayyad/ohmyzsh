@@ -44,18 +44,22 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Merge upstream into master
+      - name: Fast-forward master
         if: steps.check.outputs.skip != 'true'
         run: |
           if git merge-base --is-ancestor upstream/master origin/master; then
             echo "Master already contains upstream"
             exit 0
           fi
-          git checkout -B master origin/master
-          git merge --no-edit upstream/master || { echo "::error::Merge conflict with upstream"; git merge --abort; exit 1; }
-          git checkout origin/master -- .github/workflows/
-          git add .github/workflows/
-          git commit --amend --no-edit
+          # Save workflow files from current master
+          git show origin/master:.github/workflows/sync-upstream.yml > /tmp/sync-upstream.yml
+          # Fast-forward master to upstream (pristine)
+          git checkout -B master upstream/master
+          # Restore workflow file
+          mkdir -p .github/workflows
+          cp /tmp/sync-upstream.yml .github/workflows/sync-upstream.yml
+          git add .github/workflows/sync-upstream.yml
+          git commit -m "fix(ci): maintain sync workflow" --author="github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
           git push origin HEAD:refs/heads/master --force-with-lease
 
       - name: Rebase sayyad
